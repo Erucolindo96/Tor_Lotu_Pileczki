@@ -2,7 +2,10 @@
 		.eqv PICT_BUF_SIZE 1000000 #milion, docelowo ma byc 1 MB
  		.eqv READ_FLAG 0
 		.eqv WRITE_FLAG 1
-		
+		.eqv PIXEL_MAP_OFFSET 54
+		.eqv BLUE_COL 0xff
+		.eqv RED_COL 0xff
+		.eqv GREEN_COL 0xff
 		
 		.macro print_str (%str) # str - adres stringa
 		la $a0, %str
@@ -100,9 +103,9 @@
 		
 
 		.data
-string:		.asciiz "Wprowadz x"
+#string:		.asciiz "Wprowadz x"
 
-input_file:	.asciiz "CO2_mascot-working.bmp"
+input_file:	.asciiz "obrazek_1.bmp"
 output_file:	.asciiz "testowy.bmp"
 		.align 2
 
@@ -124,18 +127,29 @@ const_0_5:	.float 0.5
 max_x:		.float 100
 max_y:		.float 15
 kwant_x:	.float 0.05	
+const_0:	.float 0		
 		.text
 		
 		.globl main
 main:
-		print_str(string)
+		#print_str(string)
 		#wczytaj gola bitmape
 		open_file_for_reading
 		read_file
 		close_file_for_reading
 		#operacje na obrazku
 		oblicz_szerokosc_i_wysokosc
+		#rysowanie linii
+		sw $s0, ($sp)
+		subiu $sp, $sp, 4
+		li $s0, 100 #ilosc iteracji
+	petla:	li $a1, 40
+		move $a0, $s0
+		jal rysuj_punkt
+		subiu $s0, $s0, 1
+		bne $s0, $zero, petla	
 		
+		addiu $sp,$sp, 4
 		
 		
 		#zapisz gotowy obrazek
@@ -154,14 +168,44 @@ Draw:
 		
 	
 
-		
-rysuj_polparabole:		
-
-		
-	
-	
-	
-
+#void rysujPolparabole()
+rysuj_polparabole:	#prolog
+			swc1 $f20, ($sp)#float x
+			swc1 $f22, -4($sp)#float y
+			swc1 $f24, -8($sp)#float 0
+			swc1 $f26, -12($sp)#float kwant_x
+			subiu $sp, $sp, 12
+			#cialo fcji
+			lwc1 $f26, kwant_x
+			lwc1 $f24, const_0
+			lwc1 $f22, H0#y=H0
+			mov.s $f20, $f24#x=0
+	petla_while:	c.le.s $f22, $f24 #jesli y<=0	
+			bc1t zapisz_x1#wyskocz z petli
+			mov.s $f12, $f20
+			jal oblicz_war_polparaboli#oblicz_war_polparaboli(x)
+			mov.s $f22, $f12 #zapisz y
+			
+			mov.s $f12, $f20#
+			jal przelicz_x	#przelicz_x(x)
+			move $v0, $t0 #wspolrzedna x pikselu
+			mov.s $f12, $f22
+			jal przelicz_y #przelicz_y(y)
+			move $v0, $t1 #wspolrzedna y pikselu
+			lw $t7, picture_width #szserokosc obrazka
+			bge $t7, $t0, zapisz_x1 #wyskocz z petli jest wspolrzedna x pikselu jest wieksza lub rowna szerokosci obrazka
+			move $a0,$t0
+			move $a1, $t1
+			jal rysuj_punkt# void narysuj_punkt(int x, int y)
+			add.s $f20, $f20, $f26 #zwieksz x o kwant
+			j petla_while
+	zapisz_x1:	swc1 $f20, x1#zapisz wartosc x, dla ktorej y sie zeruje lub jest ciutke mniejszy niz 0
+			#epilog
+			addiu $sp,$sp, 12
+			lwc1 $f26, -12($sp)
+			lwc1 $f24, -8($sp)
+			lwc1 $f22, -4($sp)
+			lwc1 $f20, ($sp)
 #float obliczWartoscPolparaboli(float x)
 oblicz_war_polparaboli:	 #x- rejestr f12
 			lwc1 $f4, const_0_5
@@ -204,8 +248,23 @@ przelicz_y:		# float y-f12
 			jr $ra
 	za_duzo_y:	move $v0, $t7
 			jr $ra
-	
-	
+#void rysuj_punkt(int x, int y)
+rysuj_punkt:		la $t0, picture_buffer
+			lw $t1, picture_height#wysokosc obrazka
+			lw $t2, picture_width#szerokosc obrazka
+			li $t4, BLUE_COL#wartosci skladowych koloru
+			li $t5, GREEN_COL
+			li $t6, RED_COL
+			addiu $t0, $t0, PIXEL_MAP_OFFSET#adres poczatku tablicy pixeli
+			move $t3, $zero #tu bdziemy liczyc adres piksela
+			mul $t3, $t1, $a1 #height * y
+			addu $t3, $t3, $a0 #height*y +x
+			sll $t3, $t3, 2 #(height*y+x)*sizeof(Pixel)//czyli 4					
+			addu $t3, $t3, $t0#adres pierwszego bajty w strukturze Pixel
+			sw $t4, ($t3) # blue
+			sw $t5, 1($t3)#green
+			sw $t6, 2($t3)#red
+			jr $ra 		 
 	
 	
 	
