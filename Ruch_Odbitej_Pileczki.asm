@@ -1,11 +1,11 @@
 	
-		.eqv PICT_BUF_SIZE 1000000 #milion, docelowo ma byc 1 MB
+		.eqv PICT_BUF_SIZE 2097152 #milion, docelowo ma byc 2 MB
  		.eqv READ_FLAG 0
 		.eqv WRITE_FLAG 1
-		.eqv PIXEL_MAP_OFFSET 54
-		.eqv BLUE_COL 0xff
-		.eqv RED_COL 0xff
-		.eqv GREEN_COL 0xff
+		.eqv PIXEL_MAP_OFFSET 138
+		.eqv BLUE_COL 0x0
+		.eqv RED_COL 0x0
+		.eqv GREEN_COL 0x0
 		
 		.macro print_str (%str) # str - adres stringa
 		la $a0, %str
@@ -42,6 +42,7 @@
 		.macro open_file_for_reading #zapisuje uchwyt w danej statycznej file_descriptor
 		la $a0, input_file
 		li $a1, READ_FLAG
+		#li $a2, 0
 		li $v0, 13
 		syscall
 		sw $v0, read_descriptor
@@ -103,10 +104,9 @@
 		
 
 		.data
-#string:		.asciiz "Wprowadz x"
-
-input_file:	.asciiz "obrazek_1.bmp"
-output_file:	.asciiz "testowy.bmp"
+#należy podawać pełne ścieżki, inaczej nie wczyta		
+input_file:	.asciiz "/home/erucolindo/Programy/Symulator MARS/gola_bitmapa_32bity.bmp"
+output_file:	.asciiz "/home/erucolindo/Programy/Symulator MARS/testowy3.bmp"
 		.align 2
 
 read_descriptor:.word 0
@@ -117,7 +117,7 @@ picture_buffer:	.space PICT_BUF_SIZE
 picture_height: .word 0		
 picture_width:	.word 0
 #stale we wzorach parabol
-g:		.float 9.81
+g:		.float 10
 v0:		.float 1
 H0:		.float 10				
 alpha:		.float 0.5
@@ -142,8 +142,8 @@ main:
 		#rysowanie linii
 		sw $s0, ($sp)
 		subiu $sp, $sp, 4
-		li $s0, 100 #ilosc iteracji
-	petla:	li $a1, 40
+		li $s0, 400 #ilosc iteracji
+	petla:	li $a1,499
 		move $a0, $s0
 		jal rysuj_punkt
 		subiu $s0, $s0, 1
@@ -178,7 +178,7 @@ rysuj_polparabole:	#prolog
 			#cialo fcji
 			lwc1 $f26, kwant_x
 			lwc1 $f24, const_0
-			lwc1 $f22, H0#y=H0
+			lwc1 $f22, H0 #y=H0
 			mov.s $f20, $f24#x=0
 	petla_while:	c.le.s $f22, $f24 #jesli y<=0	
 			bc1t zapisz_x1#wyskocz z petli
@@ -257,13 +257,14 @@ rysuj_punkt:		la $t0, picture_buffer
 			li $t6, RED_COL
 			addiu $t0, $t0, PIXEL_MAP_OFFSET#adres poczatku tablicy pixeli
 			move $t3, $zero #tu bdziemy liczyc adres piksela
-			mul $t3, $t1, $a1 #height * y
-			addu $t3, $t3, $a0 #height*y +x
-			sll $t3, $t3, 2 #(height*y+x)*sizeof(Pixel)//czyli 4					
-			addu $t3, $t3, $t0#adres pierwszego bajty w strukturze Pixel
-			sw $t4, ($t3) # blue
-			sw $t5, 1($t3)#green
-			sw $t6, 2($t3)#red
+			mul $t3, $t2, $a1 #width * y
+			addu $t3, $t3, $a0 #width*y +x
+			sll $t3, $t3, 2 #(width*y+x)*sizeof(Pixel)//czyli 4					
+			#mul $t3, $t3, 3 #a tu gdy sizeof(Pixel)==3)
+			addu $t3, $t3, $t0 #adres pierwszego bajtu w strukturze Pixel
+			sb $t4, ($t3) # blue
+			sb $t5, 1($t3)# green
+			sb $t6, 2($t3)# red
 			jr $ra 		 
 	
 	
