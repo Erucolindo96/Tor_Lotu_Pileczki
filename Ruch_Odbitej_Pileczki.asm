@@ -7,6 +7,9 @@
 		.eqv RED_COL 0x0
 		.eqv GREEN_COL 0x0
 		
+		.eqv MIN_Y 0x00000FFF #najmniejsza mozliwa wartosc y,sprawdzana w fcjach rysujacych parabole
+					#nie chcemy doprowadzić, by liczba w konwencji int_float była mnijsza od zera, bo cholera wie co sie stanie
+		
 		.macro print_str (%str) # str - adres stringa
 		la $a0, %str
 		li $v0, 4
@@ -101,7 +104,15 @@
 		.end_macro 
 		
 		
-		
+		#makra wykorzystywane w obliczeniach i rysowaniu
+		.macro iloczyn(%reg_1, %reg_2) #wynik w rejestrze_1 (UWAGA - muszą to być dwa różnie rejestry
+		multu %reg_1, %reg_2
+		mfhi %reg_2 #czesc calkowita
+		mflo %reg_1 #mantysa
+		srl %reg_1, %reg_1, 16 
+		sll %reg_2, %reg_2, 16
+		addu %reg_1, %reg_1, %reg_2
+		.end_macro 
 
 		.data
 #należy podawać pełne ścieżki, inaczej nie wczyta		
@@ -117,17 +128,17 @@ picture_buffer:	.space PICT_BUF_SIZE
 picture_height: .word 0		
 picture_width:	.word 0
 #stale we wzorach parabol
-g:		.float 10
-v0:		.float 1
-H0:		.float 10				
-alpha:		.float 0.5
-gv02:		.float 9.81 #g/v0^2 - czesta stala we wzorach
-x1:		.float 0 
-const_0_5:	.float 0.5
-max_x:		.float 100
-max_y:		.float 15
-kwant_x:	.float 0.05	
-const_0:	.float 0		
+g:		.word 0x0009CD00 #9,81 (int_float)
+v0:		.word 0x000A0000 #10(int_float)
+H0:		.word 0x00FF0000#255(int_float)				
+alpha:		.word 0x00008000#0,5(int_float)
+gv02:		.word 0x00001900 #g/v0^2(int_float) - czesta stala we wzorach 
+x1:		.word 0 
+const_0_5:	.word 0x00008000
+#max_x:		.word 0x
+#max_y:		.float 15
+kwant_x:	.word 0x000000FF	
+
 		.text
 		
 		.globl main
@@ -135,22 +146,13 @@ main:
 		#print_str(string)
 		#wczytaj gola bitmape
 		open_file_for_reading
-		read_file
+		read_file 
 		close_file_for_reading
 		#operacje na obrazku
 		oblicz_szerokosc_i_wysokosc
-		#rysowanie linii
-		sw $s0, ($sp)
-		subiu $sp, $sp, 4
-		li $s0, 400 #ilosc iteracji
-	petla:	li $a1,499
-		move $a0, $s0
-		jal rysuj_punkt
-		subiu $s0, $s0, 1
-		bne $s0, $zero, petla	
 		
-		addiu $sp,$sp, 4
 		
+		jal rysuj_polparabole
 		
 		#zapisz gotowy obrazek
 		open_file_for_writing
@@ -167,87 +169,80 @@ Draw:
 
 		
 	
-
+#opis działania:
+#Liczby w postaci int_float
+#Wyliczamy współrzędne punktu za pomoca tego formatu
+#nastepne ucinamy czesc ułamkową - i dostajemy współrzędną piksela
+#trzeba więc, aby poczatkowy y0 byl odpowiednio duzy
 #void rysujPolparabole()
-rysuj_polparabole:	#prolog
-			swc1 $f20, ($sp)#float x
-			swc1 $f22, -4($sp)#float y
-			swc1 $f24, -8($sp)#float 0
-			swc1 $f26, -12($sp)#float kwant_x
-			subiu $sp, $sp, 12
+rysuj_polparabole:	
+#wersja nowa(w stałym przecinku)
+			#prolog
+			sw $s0, ($sp)#int_float x
+			sw $s1, -4($sp)#int_float y
+			sw $s2, -8($sp)#int_float kwant_x
+			sw $s3, -12($sp)#int_float MIN_Y
+			sw $s4, -16($sp)#int Picture_height
+			sw $s5, -20($sp)#int picture_width
+			sw $ra, -24($sp)
+			addiu $sp, $sp, -28
 			#cialo fcji
-			lwc1 $f26, kwant_x
-			lwc1 $f24, const_0
-			lwc1 $f22, H0 #y=H0
-			mov.s $f20, $f24#x=0
-	petla_while:	c.le.s $f22, $f24 #jesli y<=0	
-			bc1t zapisz_x1#wyskocz z petli
-			mov.s $f12, $f20
-			jal oblicz_war_polparaboli#oblicz_war_polparaboli(x)
-			mov.s $f22, $f12 #zapisz y
+			lw $s2, kwant_x
+			lw $s1, H0 #y=H0
+			li $s3, MIN_Y #potrzebne do sprawdzania, czy juz nie
+			lw $s4, picture_height#potrzebne do sprawdzania, czy wartosc y jest w porzadku
+			lw $s5, picture_width #potrzebna do sprawdzania, czy x nie jest wiekszy niz szerokosc
+			move $s0, $zero#x=0
+	petla_while:	ble $s1, $s3, zapisz_x1#jesli y<=MIIN_Y wyskocz z petli
+			move $a0, $s0 #x - argument fcji
 			
-			mov.s $f12, $f20#
-			jal przelicz_x	#przelicz_x(x)
-			move $v0, $t0 #wspolrzedna x pikselu
-			mov.s $f12, $f22
-			jal przelicz_y #przelicz_y(y)
-			move $v0, $t1 #wspolrzedna y pikselu
-			lw $t7, picture_width #szserokosc obrazka
-			bge $t7, $t0, zapisz_x1 #wyskocz z petli jest wspolrzedna x pikselu jest wieksza lub rowna szerokosci obrazka
+			jal oblicz_war_polparaboli#oblicz_war_polparaboli(x)
+			
+			move $s1, $v0 #zapisz y
+			
+			move $t0, $s0 
+			srl $t0, $t0, 16 #konwersja x na wartosc piksela(int)
+			move $t1, $s1
+			srl $t1, $t1, 16 #konwersja y na wartosci piksela(int)
+			
+			bge $t0, $s5, zapisz_x1 #wyskocz z petli jest wspolrzedna x pikselu jest wieksza lub rowna szerokosci obrazka
+			
+			blt $t1, $s4, y_jest_dobry#jesli y jest dobry to kontynuujemy
+			move $t1, $s4 #jesli nie, to ładujemy wysokosc obrazka
+			addiu $t1, $t1, -1#i zmniejszamy o jeden - wtedy jest to najwieksza mozliwa wartosc y 
+y_jest_dobry:		
+			
 			move $a0,$t0
 			move $a1, $t1
 			jal rysuj_punkt# void narysuj_punkt(int x, int y)
-			add.s $f20, $f20, $f26 #zwieksz x o kwant
-			j petla_while
-	zapisz_x1:	swc1 $f20, x1#zapisz wartosc x, dla ktorej y sie zeruje lub jest ciutke mniejszy niz 0
+			
+			add $s0, $s0, $s2 #zwieksz x o kwant
+			b  petla_while
+	zapisz_x1:	sw $s0, x1#zapisz wartosc x, dla ktorej y sie zeruje lub jest ciutke wiekszy niz 0
 			#epilog
-			addiu $sp,$sp, 12
-			lwc1 $f26, -12($sp)
-			lwc1 $f24, -8($sp)
-			lwc1 $f22, -4($sp)
-			lwc1 $f20, ($sp)
-#float obliczWartoscPolparaboli(float x)
-oblicz_war_polparaboli:	 #x- rejestr f12
-			lwc1 $f4, const_0_5
-			lwc1 $f6, gv02
-			lwc1 $f8, H0
-			mul.s $f12, $f12, $f12 #x^2
-			mul.s $f12, $f12, $f6#x^2 *g/v0
-			mul.s $f12, $f12, $f4, #1/2 x^2*g/v0
-			sub.s $f8, $f8, $f12 #h0- 1/2 x^2*g/v0
-			mov.s $f0, $f8#zwroc wynik
+			addiu $sp,$sp, 28
+			lw $ra, -24($sp)
+			lw $s5, -20($sp)
+			lw $s4, -16($sp)
+			lw $s3, -12($sp)
+			lw $s2, -8($sp)
+			lw $s1, -4($sp)
+			lw $s0, ($sp)
+			jr $ra
+			
+#int_float obliczWartoscPolparaboli(int_float x)
+oblicz_war_polparaboli:	 
+			lw $t0, H0
+			lw $t1, gv02
+			lw $t2, const_0_5 
+			move $t3, $a0
+			iloczyn($t3, $a0) #x^2
+			iloczyn($t3, $t1)#x^2 *g/v0
+			iloczyn($t3, $t2) #1/2 x^2*g/v0
+			sub $v0, $t0, $t3 #h0- 1/2 x^2*g/v0
 			jr $ra#powrot
-#int przeliczNaWspolrzednaX(float x) //+ dane globalne szerokosc i MAX_X
-przelicz_x:		#x - f12
-			lwc1 $f4, max_x
-			lw $t7, picture_width
-			c.le.s $f12, $f4 #jesli x > max_x
-			bc1f za_duzo_x #zwroc picture_width
-			mtc1 $t7, $f6 #width
-			cvt.s.w $f6, $f6 #int konwertuje na floata
-			mul.s $f12, $f12, $f6 #width *x
-			div.s $f12, $f12, $f4#x*W/MAX_x
-			cvt.w.s $f12, $f12 #float konwertuje na int
-			mfc1 $v0, $f12 #zwroc obliczona wartosc
-			jr $ra												
-	za_duzo_x:	move $v0, $t7
-			jr $ra
-	
-#int przeliczNaWspolrzednaY(float y)
-przelicz_y:		# float y-f12
-			lwc1 $f4, max_y
-			lw $t7, picture_height
-			c.le.s $f12, $f4#jesli y> max_y
-			bc1f za_duzo_y#zwroc picture_height			
-			mtc1 $t7, $f6 #height
-			cvt.s.w $f6, $f6 #int konwertuje na float
-			mul.s $f12, $f12, $f6 #height *y
-			div.s $f12, $f12, $f4#y*H/max_y
-			cvt.w.s $f12, $f12 #float konwertuje na int
-			mfc1 $v0, $f12#zwroc obliczona wartosc
-			jr $ra
-	za_duzo_y:	move $v0, $t7
-			jr $ra
+
+
 #void rysuj_punkt(int x, int y)
 rysuj_punkt:		la $t0, picture_buffer
 			lw $t1, picture_height#wysokosc obrazka
